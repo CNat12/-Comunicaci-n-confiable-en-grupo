@@ -1,0 +1,149 @@
+Cliente:
+
+package comunicacionconfiable;
+import java.net.DatagramPacket;
+import java.net.DatagramSocket;
+import java.net.InetAddress;
+import java.net.MulticastSocket;
+
+public class ClienteMulticas{
+    private static final String MULTICAST_IP = "239.1.1.1";
+    private static final int PORT = 5000;
+
+    public static void main(String[] args) {
+        try {
+            MulticastSocket socket = new MulticastSocket(PORT);
+            InetAddress group = InetAddress.getByName(MULTICAST_IP);
+            socket.joinGroup(group);
+
+            while (true) {
+                byte[] buffer = new byte[256];
+                DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
+                socket.receive(packet);
+
+                String mensaje = new String(packet.getData(), 0, packet.getLength());
+                System.out.println("Mensaje recibido: " + mensaje);
+
+                // Enviar confirmación al servidor
+                DatagramSocket confirmSocket = new DatagramSocket();
+                String confirmacion = "Confirmacion recibida";
+                byte[] confirmBuffer = confirmacion.getBytes();
+                DatagramPacket confirmPacket = new DatagramPacket(confirmBuffer, confirmBuffer.length, packet.getAddress(), packet.getPort());
+                confirmSocket.send(confirmPacket);
+                confirmSocket.close();
+                System.out.println("Confirmacion enviada al servidor.");
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+}
+
+Servidor: 
+
+
+package comunicacionconfiable;
+
+import java.net.DatagramPacket;
+import java.net.DatagramSocket;
+import java.net.InetAddress;
+import java.util.HashSet;
+import java.util.Scanner;
+import java.util.Set;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+
+public class ServidorMulticast {
+    
+    private static final String MULTICAST_IP = "239.1.1.1";
+    
+    private static final int PORT = 5000;
+    
+    private static final int TIMEOUT_MS = 5000;
+    
+    private static final int NUMERO_ESPERADO_DE_CLIENTES = 1; 
+
+    // Conjunto para almacenar las IPs de los clientes que han confirmado la recepción
+    private final Set<String> clientesConfirmados = new HashSet<>();
+    // Socket para enviar y recibir datagramas UDP
+    private DatagramSocket socket;
+    // Dirección de grupo multicast
+    private InetAddress group;
+    // Servicio para programar tareas de retransmisión
+    private ScheduledExecutorService scheduler;
+
+    // Constructor que inicializa el socket, la dirección de grupo y el programador de tareas
+    public ServidorMulticast() throws Exception {
+        socket = new DatagramSocket();
+        group = InetAddress.getByName(MULTICAST_IP);
+        scheduler = Executors.newScheduledThreadPool(1);
+    }
+
+    // Método que envía el mensaje al grupo multicast y programa su retransmisión
+    public void enviarMensaje(String mensaje) throws Exception {
+        // Convertir el mensaje a bytes para enviarlo en el paquete UDP
+        byte[] buffer = mensaje.getBytes();
+        DatagramPacket packet = new DatagramPacket(buffer, buffer.length, group, PORT);
+
+      
+        scheduler.scheduleAtFixedRate(() -> {
+            try {
+             
+                if (clientesConfirmados.size() < NUMERO_ESPERADO_DE_CLIENTES) {
+                    System.out.println("Faltan confirmaciones de algunos clientes. \nReenviando mensaje a los clientes restantes.");
+                    socket.send(packet);
+                } else {
+                    System.out.println("Deteniendo la retransmision.");
+                    scheduler.shutdown();
+                }
+            } catch (Exception e) {
+                System.err.println("Error al reenviar el mensaje: " + e.getMessage());
+            }
+        }, 0, TIMEOUT_MS, TimeUnit.MILLISECONDS); 
+    }
+
+  
+    public void recibirConfirmacion() throws Exception {
+        byte[] buffer = new byte[256];
+        DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
+
+        // Bucle que sigue ejecutándose hasta que se recibe la confirmación de todos los clientes esperados
+        while (clientesConfirmados.size() < NUMERO_ESPERADO_DE_CLIENTES) {
+            socket.receive(packet);
+            String confirmacion = new String(packet.getData(), 0, packet.getLength());
+            // Obtener la dirección IP 
+            String cliente = packet.getAddress().getHostAddress();
+            
+            if (confirmacion.equals("Confirmacion recibida") && !clientesConfirmados.contains(cliente)) {
+                // Agregar la IP del cliente 
+                clientesConfirmados.add(cliente);
+                System.out.println("Confirmacion recibida del cliente con IP: " + cliente + ". Total confirmaciones: " + clientesConfirmados.size());
+            }
+        }
+
+        
+        System.out.println("Todos los clientes han confirmado.");
+    }
+
+  
+    public static void main(String[] args) {
+        try {
+            //instancia del servidor multicast
+            ServidorMulticast servidor = new ServidorMulticast();
+            Scanner scanner = new Scanner(System.in);
+
+           
+            System.out.print("Ingrese el mensaje que desea enviar a los clientes: ");
+            String mensaje = scanner.nextLine();
+
+            System.out.println("Enviando mensaje inicial...");
+            servidor.enviarMensaje(mensaje);
+            servidor.recibirConfirmacion();
+
+            scanner.close();
+        } catch (Exception e) {
+            System.err.println("Error en el servidor: " + e.getMessage());
+        }
+    }
+}
