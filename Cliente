@@ -1,0 +1,39 @@
+import java.io.*;
+import java.net.*;
+
+public class ClienteTCPUDP {
+    private static final String SERVER_IP = "127.0.0.1"; // Cambia esta IP a la IP del servidor
+    private static final int TCP_PORT = 6000;
+    private static final int UDP_PORT = 5000;
+
+    public static void main(String[] args) {
+        try {
+            // Conexión TCP para enviar un mensaje al servidor
+            Socket tcpSocket = new Socket(SERVER_IP, TCP_PORT);
+            PrintWriter out = new PrintWriter(tcpSocket.getOutputStream(), true);
+            BufferedReader in = new BufferedReader(new InputStreamReader(tcpSocket.getInputStream()));
+
+            String mensaje = "Hola desde el cliente (TCP)";
+            out.println(mensaje);
+            System.out.println("Mensaje enviado (TCP): " + mensaje);
+
+            // Recibir confirmación del servidor vía TCP
+            String confirmacion = in.readLine();
+            System.out.println("Confirmación recibida del servidor (TCP): " + confirmacion);
+            tcpSocket.close();
+
+            // Escuchar mensajes desde el servidor usando UDP
+            DatagramSocket udpSocket = new DatagramSocket(UDP_PORT);
+            byte[] buffer = new byte[256];
+            DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
+
+            while (true) {
+                udpSocket.receive(packet);
+                String udpMensaje = new String(packet.getData(), 0, packet.getLength());
+                System.out.println("Mensaje recibido (UDP): " + udpMensaje);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+}
